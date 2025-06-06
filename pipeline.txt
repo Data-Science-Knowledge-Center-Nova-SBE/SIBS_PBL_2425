@@ -1,0 +1,138 @@
+# Fraud Business Impact Forecasting: NOVA x SIBS
+
+# Initiating the Spark Session
+
+import findspark
+findspark.init()
+from pyspark.sql import SparkSession
+from pyspark.sql import SparkSession
+from pyspark.sql.window import Window
+import pandas as pd
+from pyspark.sql import functions as F
+from pyspark.sql.functions import col, avg, when
+
+python_packages_path =  "/home/cdsw/ml_new.tar.gz#environment"
+executor_memory="10g"
+driver_memory="8g"
+executor_cores="3"
+maxExecutors=15
+memory_overhead= "2g"
+n_partitions=200
+driver_memory_overhead = 8000
+session_name = "trying"
+
+spark = SparkSession\
+        .builder\
+        .config("spark.yarn.dist.archives", python_packages_path)\
+        .config("spark.executor.memory", executor_memory)\
+        .config("spark.driver.memory", driver_memory)\
+        .config("spark.executor.cores", executor_cores)\
+        .config("spark.yarn.executor.memoryOverhead", memory_overhead)\
+        .config("spark.dynamicAllocation.enabled", True)\
+        .config("spark.dynamicAllocation.maxExecutors", maxExecutors)\
+        .config("spark.sql.shuffle.partitions", n_partitions)\
+        .config("spark.sql.adaptive.enabled", True)\
+        .config("spark.yarn.driver.memoryOverhead",driver_memory_overhead )\
+        .config("spark.yarn.queue", "root.nova_sbe")\
+        .appName(session_name)\
+        .getOrCreate()
+
+# 1. Importing Dataframes
+
+Training dataset and out-of-sample dataset (card status is a complementary table to both datasets).
+
+
+training = spark.table("nova_sbe.raw_202306_202412")
+card_status = spark.table("nova_sbe.card_status_202306_202412")
+oos = spark.table("nova_sbe.sample_202412") 
+card_status_outsample=spark.table("nova_sbe.card_status_202501_202504")
+#Making Sure the Out-Of-Sample has the same columns as the training Dataframe
+oos = oos[training.columns]
+#Concatinating Card Status Dfs
+card_status_full = card_status.union(card_status_outsample)
+
+
+# 2. Feature Creation
+## 2.1 Creating Target Variable
+
+- The Target Variable for this project is `fraud_amount_accpeted` which as the name reveals is the the amount of transactions which were initially  accepted but turned out to be fraudulent 
+
+- To create the Target, we need to define what fraud is, we are doing this with by using the `fraud_sp` and therefore creating the `fraud_label`
+- The overall goal with designing the features is to create an exhaustive list, which explains the Target Feature
+- The Features are later selected using Mutual Information Analysis Regression
+
+# in the full dataset
+df = df.withColumn(
+    "fraud_label",
+    F.when(
+        F.col('fraud_sp') > 0,
+        1 # When fraud_sp is positive, transaction is confirmed fraud
+    ).when(
+        F.col('fraud_sp') <= 0,
+        -1 # When fraud_sp is 0 or negative (and not null), transaction is confirmed genuine
+    ).otherwise(0) 
+)
+
+# in the training dataset to avoid data leakage in the creation of certain feautres 
+training = training.withColumn(
+    "fraud_label",
+    F.when(
+        F.col('fraud_sp') > 0,
+        1 # When fraud_sp is positive, transaction is confirmed fraud
+    ).when(
+        F.col('fraud_sp') <= 0,
+        -1 # When fraud_sp is 0 or negative (and not null), transaction is confirmed genuine
+    ).otherwise(0) 
+)
+df = df.withColumn(
+    "fraud_amount",
+    when(col("fraud_label") == 1, col("OPERATION_AMOUNT")).otherwise(0)
+)
+df=df.withColumn(
+    "TRANSACTION_ACCEPTED",
+    F.when(F.col("RESPONSE_STATUS_CDE") == "ACCP", 1).otherwise(0))
+df = df.withColumn(
+    "fraud_amount_accepted",
+    when(col("TRANSACTION_ACCEPTED") == 1, col("fraud_amount")).otherwise(0)
+)
+
+# 2.2 Creating Time Features
+
+- Creating: 
+    - `TRANSACTION_MONTH`: Numerical value of the Month of the Transaction (e.g. 11 for November)
+    - `HOUR_OF_DAY`: Numerical value for the Hour of the Day (e.g. 14 for 2p.m.)
+    - `DAY_OF_WEEK`: Numerical value for the Day of the Week (e.g. 1 for Monday) 
+    - `DAY_OF_MONTH`: Numerical value for the Day of the Month (e.g. 31)
+    - `TRANSACTION_DATE`: Daily aggregation of the Timestamp
+- `TRANSACTION_DATE` will be used for the Daily Aggregation
+
+### 2.2.1 Time Features
+df = df.withColumn(
+    "TRANSACTION_MONTH",
+    F.month(F.col("TRANSACTION_DATETIME"))
+).withColumn(
+    "HOUR_OF_DAY",
+    F.hour(F.col("TRANSACTION_DATETIME"))
+).withColumn(
+    "DAY_OF_WEEK",
+    F.dayofweek(F.col("TRANSACTION_DATETIME"))
+).withColumn(
+    "DAY_OF_MONTH",
+    F.dayofmonth(F.col("TRANSACTION_DATETIME"))
+).withColumn(
+    "TRANSACTION_DATE",
+    F.to_date("TRANSACTION_DATETIME")   
+)
+### 2.2.2 Sin/Cosine Day of Month Transformation 
+from pyspark.sql.functions import col, sin, cos, lit
+
+max_day = 31
+pi = 3.141592653589793
+
+df = df.withColumn(
+    "dom_angle", 2 * lit(pi) * col("DAY_OF_MONTH") / lit(max_day)
+).withColumn(
+    "dom_sin", sin(col("dom_angle"))
+).withColumn(
+    "dom_cos", cos(col("dom_angle"))
+).drop("dom_angle")
