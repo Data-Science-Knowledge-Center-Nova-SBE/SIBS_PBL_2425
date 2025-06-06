@@ -1,0 +1,4 @@
+Evaluation on 120 test days:
+1-Day → MAE: 2313.02, MAPE: 2.75%, Penalized MAE: 2891.27
+7-Day → MAE: 17164.69, MAPE: 18.34%, Penalized MAE: 19332.24
+30-Day → MAE: 16686.45, MAPE: 16.37%, Penalized MAE: 19776.50
