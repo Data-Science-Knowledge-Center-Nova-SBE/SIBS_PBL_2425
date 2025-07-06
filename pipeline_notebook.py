@@ -1,13 +1,25 @@
+# %%
 """
-Fraud Business Impact Forecasting: NOVA x SIBS Pipeline
+# Fraud Business Impact Forecasting: NOVA x SIBS Pipeline
 
-This pipeline processes transaction data to create features for fraud amount prediction.
+This notebook processes transaction data to create features for fraud amount prediction.
 The pipeline consists of three main phases:
-1. Spark-based feature engineering
-2. Data transformation and aggregation
-3. Machine learning model training and evaluation
+
+1. **Spark-based feature engineering**
+2. **Data transformation and aggregation** 
+3. **Machine learning model training and evaluation**
+
+## Table of Contents
+1. [Setup and Imports](#setup)
+2. [Data Loading Functions](#data-loading)
+3. [Feature Engineering Functions](#feature-engineering)
+4. [Data Processing Functions](#data-processing)
+5. [Modeling Functions](#modeling)
+6. [Pipeline Execution](#execution)
 """
 
+# %%
+# Setup and Imports
 import findspark
 findspark.init()
 
@@ -24,7 +36,19 @@ from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error
 import shap
 
+# Configure matplotlib for inline plots
+%matplotlib inline
 
+print("All imports completed successfully!")
+
+# %%
+"""
+## 1. Data Loading Functions
+
+These functions handle Spark session initialization and data loading from the database tables.
+"""
+
+# %%
 def initialize_spark_session(session_name="fraud_pipeline"):
     """
     Initialize Spark session with optimized configurations for the fraud detection pipeline.
@@ -62,7 +86,7 @@ def initialize_spark_session(session_name="fraud_pipeline"):
     
     return spark
 
-
+# %%
 def load_data(spark):
     """
     Load training, out-of-sample, and card status data from Spark tables.
@@ -87,7 +111,15 @@ def load_data(spark):
     
     return training, oos, card_status_full
 
+# %%
+"""
+## 2. Feature Engineering Functions
 
+These functions create various types of features including target variables, time features, 
+rolling statistics, merchant features, and card features.
+"""
+
+# %%
 def create_target_variable(df, training_df):
     """
     Create fraud-related target variables and labels.
@@ -135,7 +167,7 @@ def create_target_variable(df, training_df):
     
     return df
 
-
+# %%
 def create_time_features(df):
     """
     Create time-based features including cyclical transformations.
@@ -175,7 +207,7 @@ def create_time_features(df):
     
     return df
 
-
+# %%
 def create_rolling_features(df):
     """
     Create rolling statistics and lag features for fraud amounts.
@@ -253,7 +285,7 @@ def create_rolling_features(df):
     
     return df, rolling_stats_7, rolling_stats_14, lag1_df, lag7_df, lag14_df
 
-
+# %%
 def create_merchant_features(df, training_df):
     """
     Create merchant-related features including risk assessment and categorization.
@@ -311,7 +343,7 @@ def create_merchant_features(df, training_df):
     
     return df
 
-
+# %%
 def create_card_features(df, card_status_full):
     """
     Create card-related features including authorization response codes and cancellations.
@@ -343,7 +375,14 @@ def create_card_features(df, card_status_full):
     
     return df
 
+# %%
+"""
+## 3. Data Processing Functions
 
+These functions handle data aggregation, conversion between Spark and Pandas, and target variable correction.
+"""
+
+# %%
 def aggregate_daily_features(df):
     """
     Aggregate all features on a daily basis.
@@ -405,7 +444,7 @@ def aggregate_daily_features(df):
     
     return daily_data
 
-
+# %%
 def convert_to_pandas(daily_data, rolling_stats_7, rolling_stats_14, lag1_df, lag7_df, lag14_df):
     """
     Convert Spark DataFrames to Pandas and merge all features.
@@ -438,7 +477,7 @@ def convert_to_pandas(daily_data, rolling_stats_7, rolling_stats_14, lag1_df, la
     
     return df_pd
 
-
+# %%
 def create_corrected_target(df_pd, training_df):
     """
     Create fraud labelling delay corrected target variable.
@@ -491,9 +530,28 @@ def create_corrected_target(df_pd, training_df):
     df_pd['correction_factor'] = df_pd['days_since_transaction'].map(labeling_curve_dict)
     df_pd['corrected_accepted_fraud_amount'] = ((df_pd['fraud_amount_accepted'] / 100) / df_pd['correction_factor']) * 100
     
+    # Plot comparison
+    plt.figure(figsize=(12, 6))
+    plt.plot(df_pd['TRANSACTION_DATE'], df_pd['corrected_accepted_fraud_amount'], label='Corrected', color='red')
+    plt.plot(df_pd['TRANSACTION_DATE'], df_pd['fraud_amount_accepted'], label='Actual')
+    plt.title("Accepted Fraud Amount: Actual vs Corrected")
+    plt.xlabel("Date")
+    plt.ylabel("Amount")
+    plt.grid()
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+    
     return df_pd
 
+# %%
+"""
+## 4. Modeling Functions
 
+These functions handle data preparation for modeling, feature selection, model training, and evaluation.
+"""
+
+# %%
 def prepare_modeling_data(df_pd):
     """
     Prepare data for modeling by creating training and test splits.
@@ -509,18 +567,21 @@ def prepare_modeling_data(df_pd):
     train_data = df_pd[(df_pd['TRANSACTION_DATE'] >= '2023-06-01') & (df_pd['TRANSACTION_DATE'] <= '2024-12-31')]
     test_data = df_pd[(df_pd['TRANSACTION_DATE'] >= '2025-01-01') & (df_pd['TRANSACTION_DATE'] <= '2025-04-30')]
     
+    print(f"Training data shape: {train_data.shape}")
+    print(f"Test data shape: {test_data.shape}")
+    
     return train_data, test_data
 
-
+# %%
 def feature_selection_analysis(train_data):
     """
-    Perform feature selection analysis using Mutual Information and SHAP.
+    Perform feature selection analysis using Mutual Information.
     
     Args:
         train_data (pd.DataFrame): Training data
         
     Returns:
-        tuple: (mi_df, shap_values) - MI scores and SHAP analysis results
+        pd.DataFrame: DataFrame with MI scores for features
     """
     # Mutual Information Analysis
     X = train_data.drop(columns=['TRANSACTION_DATE', 'fraud_amount_accepted', 'days_since_transaction', 'correction_factor', 'corrected_accepted_fraud_amount'], axis=1).fillna(0)
@@ -532,9 +593,19 @@ def feature_selection_analysis(train_data):
     print("Top 15 Features by Mutual Information Score:")
     print(mi_df.head(15))
     
+    # Plot top features
+    plt.figure(figsize=(12, 8))
+    top_features = mi_df.head(15)
+    plt.barh(top_features['Feature'], top_features['MI_Score'])
+    plt.xlabel('Mutual Information Score')
+    plt.title('Top 15 Features by Mutual Information Score')
+    plt.gca().invert_yaxis()
+    plt.tight_layout()
+    plt.show()
+    
     return mi_df
 
-
+# %%
 def train_and_evaluate_model(train_data, test_data):
     """
     Train Random Forest model and evaluate performance.
@@ -559,6 +630,9 @@ def train_and_evaluate_model(train_data, test_data):
     normal_days = df_train[df_train["corrected_accepted_fraud_amount"] <= threshold]
     df_train_balanced = pd.concat([normal_days, pd.concat([peak_days] * 5)], ignore_index=True)
     
+    print(f"Original training size: {len(df_train)}")
+    print(f"Balanced training size: {len(df_train_balanced)}")
+    
     # Feature selection based on analysis
     features = ['unique_cards', 'total_rejected', 'total_accepted', 'mcc_4829_count',
                 'total_operation_amount', 'total_tx', 'remote_tx', 'unique_merchant_card_pairs',
@@ -581,6 +655,8 @@ def train_and_evaluate_model(train_data, test_data):
     X_test = df_test[features]
     y_test = df_test["corrected_accepted_fraud_amount"]
     
+    print(f"Number of features: {len(features)}")
+    
     # Hyperparameter tuning
     param_grid = {
         "n_estimators": [100, 300],
@@ -590,10 +666,13 @@ def train_and_evaluate_model(train_data, test_data):
         "max_features": ['sqrt', 'log2']
     }
     
+    print("Starting hyperparameter tuning...")
     rf = RandomForestRegressor(random_state=42, n_jobs=-1)
     grid_search = GridSearchCV(rf, param_grid, cv=3, scoring="neg_mean_absolute_error", verbose=1)
     grid_search.fit(X_train, y_train)
     best_rf = grid_search.best_estimator_
+    
+    print(f"Best parameters: {grid_search.best_params_}")
     
     # Make predictions
     y_pred = best_rf.predict(X_test)
@@ -641,7 +720,14 @@ def train_and_evaluate_model(train_data, test_data):
     
     return best_rf, y_pred, test_dates
 
+# %%
+"""
+## 5. Complete Pipeline Execution
 
+This section runs the complete pipeline from data loading to model evaluation.
+"""
+
+# %%
 def run_complete_pipeline():
     """
     Execute the complete fraud detection pipeline from data loading to model evaluation.
@@ -649,68 +735,70 @@ def run_complete_pipeline():
     Returns:
         tuple: (model, predictions, final_data) - Final model, predictions, and processed data
     """
-    print("Starting Fraud Detection Pipeline...")
+    print("🚀 Starting Fraud Detection Pipeline...")
     
     # 1. Initialize Spark session
-    print("1. Initializing Spark session...")
+    print("\n📊 1. Initializing Spark session...")
     spark = initialize_spark_session()
     
     # 2. Load data
-    print("2. Loading data...")
+    print("\n📂 2. Loading data...")
     training, oos, card_status_full = load_data(spark)
     
     # Combine training and out-of-sample for feature engineering
     df = training.union(oos)
+    print(f"Combined dataset shape: {df.count()} rows")
     
     # 3. Create target variables
-    print("3. Creating target variables...")
+    print("\n🎯 3. Creating target variables...")
     df = create_target_variable(df, training)
     
     # 4. Create time features
-    print("4. Creating time features...")
+    print("\n⏰ 4. Creating time features...")
     df = create_time_features(df)
     
     # 5. Create rolling and lag features
-    print("5. Creating rolling and lag features...")
+    print("\n📊 5. Creating rolling and lag features...")
     df, rolling_stats_7, rolling_stats_14, lag1_df, lag7_df, lag14_df = create_rolling_features(df)
     
     # 6. Create merchant features
-    print("6. Creating merchant features...")
+    print("\n🏪 6. Creating merchant features...")
     df = create_merchant_features(df, training)
     
     # 7. Create card features
-    print("7. Creating card features...")
+    print("\n💳 7. Creating card features...")
     df = create_card_features(df, card_status_full)
     
     # 8. Daily aggregation
-    print("8. Aggregating features daily...")
+    print("\n📈 8. Aggregating features daily...")
     daily_data = aggregate_daily_features(df)
     
     # 9. Convert to Pandas and merge
-    print("9. Converting to Pandas and merging features...")
+    print("\n🔄 9. Converting to Pandas and merging features...")
     df_pd = convert_to_pandas(daily_data, rolling_stats_7, rolling_stats_14, lag1_df, lag7_df, lag14_df)
+    print(f"Final feature set shape: {df_pd.shape}")
     
     # 10. Create corrected target
-    print("10. Creating corrected target variable...")
+    print("\n🔧 10. Creating corrected target variable...")
     df_pd = create_corrected_target(df_pd, training)
     
     # 11. Prepare modeling data
-    print("11. Preparing modeling data...")
+    print("\n📊 11. Preparing modeling data...")
     train_data, test_data = prepare_modeling_data(df_pd)
     
     # 12. Feature selection analysis
-    print("12. Performing feature selection analysis...")
+    print("\n🔍 12. Performing feature selection analysis...")
     mi_df = feature_selection_analysis(train_data)
     
     # 13. Train and evaluate model
-    print("13. Training and evaluating model...")
+    print("\n🤖 13. Training and evaluating model...")
     model, predictions, test_dates = train_and_evaluate_model(train_data, test_data)
     
-    print("Pipeline completed successfully!")
+    print("\n✅ Pipeline completed successfully!")
     
     return model, predictions, df_pd
 
-
-# Execute the pipeline if this script is run directly
-if __name__ == "__main__":
-    model, predictions, final_data = run_complete_pipeline()
+# %%
+# Execute the complete pipeline
+print("Starting the complete fraud detection pipeline...")
+model, predictions, final_data = run_complete_pipeline()
