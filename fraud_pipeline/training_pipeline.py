@@ -19,6 +19,10 @@ from .config import (
     PIPELINE_CONFIG, PATHS
 )
 
+from .plotting import plot_mutual_information, plot_shap_summary, plot_predictions
+import os
+
+
 class FraudTrainingPipeline:
     """
     Main training pipeline for fraud detection
@@ -276,6 +280,48 @@ class FraudTrainingPipeline:
         self.training_metrics = evaluation_results
         
         return evaluation_results
+
+
+    def create_feature_importance_visualizations(self, test_data: pd.DataFrame):
+    """
+    Create feature importance visualizations (Mutual Information and SHAP).
+    """
+        self.logger.info("Creating feature importance visualizations...")
+        plots_dir = PATHS.get("plots_dir", os.path.join(PATHS["artifacts_dir"], "plots"))
+        os.makedirs(plots_dir, exist_ok=True)
+    
+        # Mutual Information
+        if self.feature_importance is not None:
+            plot_mutual_information(self.feature_importance, plots_dir)
+    
+        # SHAP Summary
+        try:
+            X_test = test_data[FEATURE_CONFIG["selected_features"]].fillna(0)
+            plot_shap_summary(self.model, X_test, plots_dir)
+        except Exception as e:
+            self.logger.warning(f"SHAP plot failed: {str(e)}")
+    
+        self.logger.info(f"Saved feature importance plots to {plots_dir}")
+
+
+    def create_prediction_visualizations(self, test_data: pd.DataFrame, y_pred: pd.Series, mode: str = "training"):
+        """
+        Create prediction vs actual plot and save.
+        """
+        self.logger.info("Creating prediction visualization...")
+        plots_dir = PATHS.get("plots_dir", os.path.join(PATHS["artifacts_dir"], "plots"))
+        os.makedirs(plots_dir, exist_ok=True)
+    
+        try:
+            if FEATURE_CONFIG["date_column"] in test_data.columns:
+                dates = pd.to_datetime(test_data[FEATURE_CONFIG["date_column"]])
+                y_test = test_data[FEATURE_CONFIG["corrected_target_column"]]
+                filename = f"{mode}_actual_vs_predicted.png"
+                plot_predictions(dates, y_test, y_pred, plots_dir, filename)
+        except Exception as e:
+            self.logger.warning(f"Prediction plot failed: {str(e)}")
+    
+        self.logger.info(f"Saved prediction plot to {plots_dir}")
     
     def save_model_artifacts(self) -> str:
         """
@@ -335,8 +381,13 @@ class FraudTrainingPipeline:
             
             # Step 7: Evaluate model
             evaluation_results = self.evaluate_model(test_data)
-            
-            # Step 8: Save model artifacts
+
+             # Step 8: Create visualizations
+            y_pred = self.model.predict(test_data[FEATURE_CONFIG["selected_features"]])
+            self.create_feature_importance_visualizations(test_data)
+            self.create_prediction_visualizations(test_data, y_pred, mode="training")
+                
+            # Step 9: Save model artifacts
             model_path = self.save_model_artifacts()
             
             # Prepare results
@@ -377,6 +428,7 @@ def main():
     print(f"Training samples: {results['training_samples']}")
     print(f"Test samples: {results['test_samples']}")
     print(f"Features used: {results['features_count']}")
+    print("\nVisualizations saved under:", PATHS.get("plots_dir", "Not configured"))
     print("\nEvaluation Metrics:")
     for horizon, metrics in results['evaluation_metrics'].items():
         print(f"\n{horizon.upper()}:")
