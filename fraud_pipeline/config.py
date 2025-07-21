@@ -82,7 +82,8 @@ PATHS = {
     "predictions_dir": "predictions/",
     "features_dir": "features/",
     "logs_dir": "logs/",
-    "artifacts_dir": "artifacts/"
+    "artifacts_dir": "artifacts/",
+    "plots_dir": "plots/"
 }
 
 # Ensure directories exist
