@@ -164,22 +164,7 @@ class FraudInferencePipeline:
         
         return predictions_df
         
-        try:
-            plots_dir = PATHS.get("plots_dir", os.path.join(PATHS["artifacts_dir"], "plots"))
-            dates = pd.to_datetime(predictions_df[FEATURE_CONFIG["date_column"]])
-            preds = predictions_df["prediction"]
-            actuals = features_df.get(FEATURE_CONFIG["corrected_target_column"], preds)  # fallback
-        
-            plot_file = plot_predictions(
-                dates=dates,
-                actuals=actuals,
-                preds=preds,
-                output_dir=plots_dir,
-                title="Predicted Fraud Amount (Inference)"
-            )
-            self.logger.info(f"Inference prediction plot saved to: {plot_file}")
-        except Exception as e:
-            self.logger.warning(f"Prediction plot failed: {str(e)}")
+       
     
     def aggregate_predictions(self, predictions_df: pd.DataFrame, 
                             aggregation_levels: list = None) -> Dict[str, pd.DataFrame]:
@@ -270,6 +255,25 @@ class FraudInferencePipeline:
             
             # Step 3: Make predictions
             predictions_df = self.make_predictions(features_df)
+
+            # Step 3b: Plot predictions
+            plot_file = None
+            try:
+                plots_dir = PATHS.get("plots_dir", os.path.join(PATHS["artifacts_dir"], "plots"))
+                dates = pd.to_datetime(predictions_df[FEATURE_CONFIG["date_column"]])
+                preds = predictions_df["prediction"]
+                actuals = features_df.get(FEATURE_CONFIG.get("corrected_target_column", ""), preds)
+            
+                plot_file = plot_predictions(
+                    dates=dates,
+                    actuals=actuals,
+                    preds=preds,
+                    output_dir=plots_dir,
+                    title="Predicted Fraud Amount (Inference)"
+                )
+                self.logger.info(f"Inference prediction plot saved to: {plot_file}")
+            except Exception as e:
+                self.logger.warning(f"Prediction plot failed: {str(e)}")
             
             # Step 4: Aggregate predictions
             aggregated_predictions = self.aggregate_predictions(predictions_df)
@@ -287,7 +291,7 @@ class FraudInferencePipeline:
                 "aggregation_levels": list(aggregated_predictions.keys()),
                 "predictions": aggregated_predictions,
                 "saved_files": saved_paths if save_results else {},
-                "prediction_plot": plot_file if 'plot_file' in locals() else None
+                "prediction_plot": plot_file
             }
             
             self.logger.info("Inference pipeline completed successfully!")
