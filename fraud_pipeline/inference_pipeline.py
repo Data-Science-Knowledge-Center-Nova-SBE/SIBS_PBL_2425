@@ -14,6 +14,7 @@ from .feature_engineering import generate_all_features
 from .config import (
     DATA_CONFIG, FEATURE_CONFIG, PIPELINE_CONFIG, PATHS
 )
+from .plotting import plot_predictions
 
 class FraudInferencePipeline:
     """
@@ -162,6 +163,23 @@ class FraudInferencePipeline:
         self.logger.info(f"Generated predictions for {len(predictions_df)} days")
         
         return predictions_df
+        
+        try:
+            plots_dir = PATHS.get("plots_dir", os.path.join(PATHS["artifacts_dir"], "plots"))
+            dates = pd.to_datetime(predictions_df[FEATURE_CONFIG["date_column"]])
+            preds = predictions_df["prediction"]
+            actuals = features_df.get(FEATURE_CONFIG["corrected_target_column"], preds)  # fallback
+        
+            plot_file = plot_predictions(
+                dates=dates,
+                actuals=actuals,
+                preds=preds,
+                output_dir=plots_dir,
+                title="Predicted Fraud Amount (Inference)"
+            )
+            self.logger.info(f"Inference prediction plot saved to: {plot_file}")
+        except Exception as e:
+            self.logger.warning(f"Prediction plot failed: {str(e)}")
     
     def aggregate_predictions(self, predictions_df: pd.DataFrame, 
                             aggregation_levels: list = None) -> Dict[str, pd.DataFrame]:
@@ -268,7 +286,8 @@ class FraudInferencePipeline:
                 "prediction_count": len(predictions_df),
                 "aggregation_levels": list(aggregated_predictions.keys()),
                 "predictions": aggregated_predictions,
-                "saved_files": saved_paths if save_results else {}
+                "saved_files": saved_paths if save_results else {},
+                "prediction_plot": plot_file if 'plot_file' in locals() else None
             }
             
             self.logger.info("Inference pipeline completed successfully!")
@@ -355,6 +374,10 @@ def main():
         daily_preds = results['predictions']['daily']
         print(f"\nSample daily predictions:")
         print(daily_preds.head())
+        
+    if results.get("prediction_plot"):
+        print(f"\nPrediction plot saved at: {results['prediction_plot']}")    
+
 
 if __name__ == "__main__":
     main() 
