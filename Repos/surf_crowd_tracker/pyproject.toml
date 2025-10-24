@@ -1,0 +1,12 @@
+[project]
+name = "surf-crowd-tracker"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "dotenv>=0.9.9",
+    "opencv-python>=4.12.0.88",
+    "pandas>=2.3.3",
+    "ultralytics>=8.3.218",
+]
